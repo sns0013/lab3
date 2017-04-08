@@ -87,22 +87,29 @@ void Control(void){
 
     while(1){
         if(LowestDevNum < DeviceNum){
+         	//printf("OUTBefore***********%d****************\n", DeviceNum);           	
             DeviceNum = LowestDevNum;
+            //printf("OUTAfter***********%d****************\n", DeviceNum);
+            LowestDevNum = MAX_NUMBER_DEVICES;
         }
         while(DeviceToServe[DeviceNum]){
-            //printf("Service\n");
             Event S = Queue[NextService[DeviceNum]][DeviceNum];
             Server(&Queue[NextService[DeviceNum]][DeviceNum]);
-            DisplayEvent('S', &S);
-            NextService[DeviceNum] = (NextService[DeviceNum] + 1) & MAX_QUEUE_SIZE;
-            TT = Now();
-            SumTT[DeviceNum] += (TT - S.When);
             DeviceServed[DeviceNum]++;
+            //printf(">>>>>Serve>>>> %d\n", DeviceNum);
+            NextService[DeviceNum] = (NextService[DeviceNum] + 1) & MAX_QUEUE_SIZE;
+            SumTT[DeviceNum] += (Now() - S.When);
+
             DeviceToServe[DeviceNum]--;
+            
+            if(LowestDevNum < DeviceNum){
+             	//printf("INBefore***********%d****************\n", DeviceNum);           	
+            	DeviceNum = LowestDevNum;
+            	//printf("INAfter***********%d****************\n", DeviceNum);
+            	LowestDevNum = MAX_NUMBER_DEVICES;
+        	}
         }
         DeviceNum = (DeviceNum + 1) & 0x1F;
-        LowestDevNum = (LowestDevNum + 1) & 0x1F;
-
     }
 }
 
@@ -115,25 +122,24 @@ void Control(void){
 \***********************************************************************/
 void InterruptRoutineHandlerDevice(void){
     // printf("An event occurred at %f  Flags = %d \n", Now(), Flags);
-    Timestamp RT;
+	Timestamp RT;
 	Status tempFlags = Flags;
 	Flags = 0;
     NumberDevices = 0;
     LowestDevNum = MAX_NUMBER_DEVICES;
 	while(tempFlags){
         if(tempFlags & 1){
-            RT = Now();
             Event E = BufferLastEvent[NumberDevices];
             Queue[NextStore[NumberDevices]][NumberDevices] = E;
             NextStore[NumberDevices] = (NextStore[NumberDevices] + 1) & MAX_QUEUE_SIZE;
-            //DisplayEvent('E', &E);
+            DisplayEvent('E', &E);
+            SumRT[NumberDevices] += (Now() - E.When);
             DeviceToServe[NumberDevices]++;
-            SumRT[NumberDevices] += (RT - E.When);
-            if(NumberDevices < LowestDevNum) {
-                LowestDevNum = NumberDevices;
-            }
+            if(NumberDevices < LowestDevNum){
+            	LowestDevNum = NumberDevices;
+        	}  
         }
-        tempFlags >>= 1;
+        tempFlags = tempFlags >> 1;
         NumberDevices++;
     }
 }
@@ -156,25 +162,35 @@ void BookKeeping(void){
     // Individual Diagnostics
     while(DeviceNum + 1){
 
-        TotalEvents += (BufferLastEvent[DeviceNum].EventID + 1);                                                // Total Number of Events Generated
-        printf("TotalEvents: %d\n", TotalEvents);
+    	if(BufferLastEvent[DeviceNum].EventID > 1){
+       		TotalEvents += (BufferLastEvent[DeviceNum].EventID + 1);
+       		printf("Seen: %d\n", BufferLastEvent[DeviceNum].EventID + 1);
+       		if(DeviceServed[DeviceNum] > 1){
+       			MissedEvents[DeviceNum] = (BufferLastEvent[DeviceNum].EventID + 1) - DeviceServed[DeviceNum];
+       		}        		
+    	}
+ 
         TotalRT += SumRT[DeviceNum];                                                                            // Sum of all Response Time
         TotalTT += SumTT[DeviceNum];                                                                            // Sum of all Turnaround Time
         AverageDRT = SumRT[DeviceNum]/DeviceServed[DeviceNum];                                                  // Average Response Time for each Device
         AverageDTT = SumTT[DeviceNum]/DeviceServed[DeviceNum];                                                  // Average Turnaround Time for each Device
+        
         if(DeviceServed[DeviceNum] > 0){
+        	printf("Served: %d\n", DeviceServed[DeviceNum]);
             TotalDeviceServed += DeviceServed[DeviceNum];                                                       // Total Number of Processed Events
-            MissedEvents[DeviceNum] = (BufferLastEvent[DeviceNum].EventID + 1) - DeviceServed[DeviceNum];       // Number of Missed Events for each Device
+            //MissedEvents[DeviceNum] = (BufferLastEvent[DeviceNum].EventID + 1) - DeviceServed[DeviceNum];       // Number of Missed Events for each Device
             AverageDME = MissedEvents[DeviceNum]*100/(BufferLastEvent[DeviceNum].EventID + 1);                  // Average Percent Missed Events for each Device
-            //printf("Device Served: [%d] [%d]",(BufferLastEvent[DeviceNum].EventID + 1), DeviceServed[DeviceNum]);
             printf("Device: [%d] --- Percent ME: [%d] --- Average RT: [%f] --- Average TT: [%f]\n", DeviceNum, MissedEvents[DeviceNum], AverageDRT, AverageDTT);
         }
-        DeviceNum--;
-    }
 
+        DeviceNum--;
+
+    }
+    printf("TotalEvents: %d\n", TotalEvents);
     // Totals Diagnostics
     SumME = TotalEvents - TotalDeviceServed;                                                                    // Total Number of Missed Events
-    AverageME = SumME*100/TotalEvents;                                                                          // Average Number of all Missed Events
+    printf("MissedEvents: %d\n", SumME);
+    AverageME = SumME/TotalEvents * 100;                                                                          // Average Number of all Missed Events
     AverageRT = TotalRT/TotalEvents;                                                                            // Average Total Response Time
     AverageTT = TotalTT/TotalEvents;                                                                            // Average Total Turnaround Time
     printf("\n\nTOTALS:\n");
